@@ -1,0 +1,26 @@
+#
+# /etc/systemd/system/samplicator.service
+#
+# a startup file for samplicator. See INSTALL.md
+#
+# based on systemd file from 
+# 5.1.2017, Ch. Bueche <bueche@netnea.com>
+# 
+
+[Unit]
+Description=Control the launch of several samplicator process 
+After=network.target
+
+[Service]
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=42s
+Type=forking
+ExecStart=/usr/sbin/samplicatectl start
+ExecReload=/usr/sbin/samplicatectrl reload
+
+
+[Install]
+WantedBy=multi-user.target
+
