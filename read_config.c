@@ -612,6 +612,83 @@ parse_receiver (struct receiver *receiverp,
 }
 
 int
+expand_port_ranges (argc, argv, exp_argc, exp_argv)
+     int argc;
+     const char **argv;
+     int *exp_argc;
+     const char ***exp_argv;
+{
+  int j, k;
+  *exp_argc=0;
+  *exp_argv=NULL;
+
+  /* expand port definition ranges */
+  for (j=0; j<argc; j++)
+  {
+      char *port_begin, *port_end=NULL;
+      int just_copy=0;
+      port_begin=strchr (argv[j], PORT_SEPARATOR);
+      if (port_begin==NULL)
+         just_copy=1;
+      else
+      {
+         char *range_start=NULL, *inc_start=NULL;
+         range_start=strchr (port_begin, '-');
+         inc_start=strchr (port_begin, '+');
+         if (!range_start && !inc_start)
+             just_copy=1;
+         else
+         {
+             int first=atoi (port_begin+1);
+             int last;
+             char *suffix;
+             if (range_start && inc_start)
+             {
+               fprintf (stderr, "Invalid port specification: at %s\n", port_begin);
+               exit (1);
+             }
+             if (range_start)
+             {
+                 last=atoi (range_start+1);
+                 suffix=range_start+1;
+             }
+             if (inc_start)
+             {
+                 last=first+atoi (inc_start+1)-1;
+                 suffix=inc_start+1;
+             }
+             while (*suffix && isdigit (*suffix))
+                 suffix++;
+             for (k=first;k<=last;k++)
+             {
+                 char *newarg=(char *) malloc (strlen (argv[j]+1));
+                 if (!newarg)
+                     return -1;
+                 memcpy (newarg,argv[j],port_begin-argv[j]+1);
+                 sprintf (newarg+(port_begin-argv[j])+1, "%d%s", k, suffix);
+                 *exp_argv=(const char **) realloc (*exp_argv, (1+*exp_argc)*sizeof (char *));
+                 if (*exp_argv==NULL)
+                     return -1;
+                 (*exp_argv)[*exp_argc]=newarg;
+                 *exp_argc=*exp_argc+1;
+             }
+         }
+      }
+      if(just_copy)
+      {
+          /* Let parse receiver handle this case */
+          *exp_argv=(const char **) realloc (*exp_argv, (1+*exp_argc)*sizeof (char *));
+          if (*exp_argv==NULL)
+              return -1;
+          (*exp_argv)[*exp_argc]=argv[j];
+          *exp_argc=*exp_argc+1;
+      }
+  }
+  return 0;
+}
+
+
+int
 parse_receivers (argc, argv, ctx, sctx)
      int argc;
      const char **argv;
@@ -619,18 +696,25 @@ parse_receivers (argc, argv, ctx, sctx)
      struct source_context *sctx;
 {
   int i;
+  int exp_argc;
+  const char **exp_argv;
+  if (expand_port_ranges (argc, argv, &exp_argc, &exp_argv))
+  {
+    fprintf (stderr, "Out of memory.");
+    exit (1);
+  }
 
   /* allocate for argc receiver entries */
-  sctx->nreceivers = argc;
+  sctx->nreceivers = exp_argc;
 
   if (!(sctx->receivers = (struct receiver*) calloc (sctx->nreceivers, sizeof (struct receiver)))) {
     return parse_error (ctx, "Out of memory");
   }
 
   /* fill in receiver entries */
-  for (i = 0; i < argc; ++i)
+  for (i = 0; i < exp_argc; ++i)
     {
-      if (parse_receiver (&sctx->receivers[i], argv[i], ctx) != 0)
+      if (parse_receiver (&sctx->receivers[i], exp_argv[i], ctx) != 0)
 	{
 	  return -1;
 	}
@@ -678,6 +762,7 @@ parse_args (argc, argv, ctx)
   bzero (&ctx->faddr, sizeof ctx->faddr);
   ctx->fport_spec = FLOWPORT;
   ctx->debug = 0;
+  ctx->timeout = 0;
   ctx->ipv4_only = 0;
   ctx->ipv6_only = 0;
   ctx->fork = 0;
@@ -692,7 +777,7 @@ parse_args (argc, argv, ctx)
   sctx->tx_delay = 0;
 
   optind = 1;
-  while ((i = getopt (argc, (char **) argv, "hu:b:d:m:p:s:x:c:fSn46")) != -1)
+  while ((i = getopt (argc, (char **) argv, "hu:b:d:t:m:p:s:x:c:fSn46")) != -1)
     {
       switch (i)
 	{
@@ -705,6 +790,9 @@ parse_args (argc, argv, ctx)
 	case 'd': /* debug */
 	  ctx->debug = atoi (optarg);
 	  break;
+        case 't': /* Timeout */
+         ctx->timeout = atoi (optarg);
+         break;
 	case 'n': /* no UDP checksums */
 	  ctx->default_receiver_flags &= ~pf_CHECKSUM;
 	  break;
@@ -778,6 +866,8 @@ Supported options:\n\
   -p <port>                UDP port to accept flows on (default %s)\n\
   -s <address>             Interface address to accept flows on (default any)\n\
   -d <level>               debug level\n\
+  -t <timeout_ms>          Exit with RC 5 if no data is received for this\n\
+                           amount of milliseconds\n\
   -b <size>                set socket buffer size (default %lu)\n\
   -n			   don't compute UDP checksum (leave at 0)\n\
   -S                       maintain (spoof) source addresses\n\
@@ -798,6 +888,11 @@ where:\n\
   port                     is the UDP port to send to (default %s)\n\
   freq                     is the sampling rate (default 1)\n\
   ttl                      is the outgoing packets' TTL value (default %d)\n\
+\n\
+The port can be a number, a range, or a number plus the number of instances:\n\
+  7000                     means port 7000\n\
+  7000-7010                means from port 7000 to 7010 (both inclusive)\n\
+  7000+10                  means 10 instances starting at 7000, so 7000 to 7009\n\
 \n\
 Config file format:\n\
 \n\
