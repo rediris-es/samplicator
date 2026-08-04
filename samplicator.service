@@ -3,16 +3,28 @@
 #
 # a startup file for samplicator. See INSTALL.md
 #
-# 19.4.2017, Ch. Bueche <bueche@netnea.com>
-#
+# based on systemd file from 
+# 5.1.2017, Ch. Bueche <bueche@netnea.com>
+# 
 
 [Unit]
-Description=Samplicator
+Description=Control the launch of several samplicator process 
 After=network.target
 
 [Service]
+#ExecReload=/bin/kill -HUP $MAINPID
+#KillMode=process (sugerido por chatgpt)
+KillMode=control-group
+Restart=on-failure
+RestartSec=42s
 Type=forking
-ExecStart=/opt/samplicator/bin/samplicate -S -c /opt/samplicator/etc/samplicator.conf -p 162 -d 0 -f
+# (sugerido por un wait en el exec de samplictorctl ) 
+#Type=simple
+ExecStart=/usr/sbin/samplicatorctl start
+ExecReload=/usr/sbin/samplicatorctl reload
+ExecStop=/usr/sbin/samplicatorctl stop
+
 
 [Install]
 WantedBy=multi-user.target
+
